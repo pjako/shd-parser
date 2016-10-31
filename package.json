@@ -1,0 +1,11 @@
+{
+  "name": "shd-parser",
+  "version": "1.0.0",
+  "description": "A Parser for shd Shader. Ported from oryol",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Peter Jakobs",
+  "license": "MIT"
+}
