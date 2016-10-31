@@ -294,6 +294,15 @@ function checkListDup(name, objList) {
     return false;
 }
 
+function findByName(name, list) {
+    for (let i = 0; list.length > i; i++) {
+        if (list[i].name === name) {
+            return list[i];
+        }
+    }
+    return void 0;
+}
+
 // code generation & parsing
 
 function generate(input, outSrc, outHdr, args) {
@@ -311,6 +320,13 @@ function generate(input, outSrc, outHdr, args) {
 class ShaderLibrary {
     constructor(inputs) {
         this.inputs = inputs;
+        this.codeBlocks = {};
+        this.uniformBlocks = {};
+        this.textureBlocks = {};
+        this.vertexShaders = {};
+        this.fragmentShaders = {};
+        this.programs = {};
+        this.current = void 0;
     }
     /**
      * Parse one source file.
@@ -318,6 +334,199 @@ class ShaderLibrary {
     parseSources() {
         const parser = new Parser(this);
         this.sources.forEach(source => parser.parseSource());
+    }
+    /**
+     * Resolve all dependencies for vertex- and fragment shaders.
+     * This populates the resolvedDeps, uniformBlocks and textureBlocks arrays.
+     */
+    resolveAllDependencies() {
+        this.resolveShaderDependency(this.vertexShaders);
+        this.resolveShaderDependency(this.fragmentShaders);
+        this.programs.forEach(program => {
+            this.resolveUniformAndTextureBlocks(program);
+            this.assignBindSlotIndices(program);
+        });
+    }
+    resolveShaderDependency(shader) {
+        for (const key in shader) {
+            const shd = shader[key];
+            for (const shKey in shd) {
+                this.resolveDeps(shd, shd[shKey]);
+            }
+            this.removeDuplicateDeps(shd);
+        }
+    }
+    /**
+     * Recursively resolve dependencies for a shader.
+     */
+    resolveDeps(shd, dep) {
+        if (!(dep.name in this.codeBlocks)) {
+            setErrorLocation(dep.path, dep.lineNumber);
+            fmtError("unknown code_block dependency '" + dep.name + "'");
+        }
+        shd.resolvedDeps.push(dep.name);
+        for (const depdepKey in this.codeBlocks[dep.name].dependencies) {
+            this.resolveDeps(shd, this.codeBlocks[dep.name].dependencies[depdepKey]);
+        }
+    }
+    /**
+     * Remove duplicates from the resolvedDeps from the front.
+     * While we're at it, reverse the order so that the
+     * lowest level dependency comes first.
+     */
+    removeDuplicateDeps(shd) {
+        const deps = [];
+        shd.resolvedDeps = shd.resolvedDeps.filter(dep => deps.indexOf(dep) === -1 ? false : !!deps.push(dep)).reverse();
+    }
+    /**
+     * Gathers all uniform- and texture-blocks from all shaders in the program
+     * and assigns the bindStage
+     */
+    resolveUniformAndTextureBlocks(program) {
+        if (this.vertexShaders.indexOf(program.vs) === -1) {
+            setErrorLocation(program.filePath, program.lineNumber);
+            fmtError("unknown vertex shader '{" + program.vs + "}'");
+        }
+        this.vertexShaders[program.vs].uniformBlockRefs.forEach(uniformBlockRef => {
+            this.checkAddUniformBlock(uniformBlockRef, program.uniformBlocks);
+        });
+        this.vertexShaders[program.vs].textureBlockRefs.forEach(textureBlockRef => {
+            this.checkAddTextureBlock(textureBlockRef, program.uniformBlocks);
+        });
+
+        if (this.fragmentShaders.indexOf(program.fs) === -1) {
+            setErrorLocation(program.filePath, program.lineNumber);
+            fmtError("unknown vertex shader '{" + program.fs + "}'");
+        }
+        this.fragmentShaders[program.fs].uniformBlockRefs.forEach(uniformBlockRef => {
+            this.checkAddUniformBlock(uniformBlockRef, program.uniformBlocks);
+        });
+        this.fragmentShaders[program.fs].textureBlockRefs.forEach(textureBlockRef => {
+            this.checkAddTextureBlock(textureBlockRef, program.uniformBlocks);
+        });
+    }
+    /**
+     * Resolve a uniform block ref and add to list with sanity checks.
+     */
+    checkAddUniformBlock(uniformBlockRef, list) {
+        if (uniformBlockRef.name in this.uniformBlocks) {
+            if (!findByName(uniformBlockRef.name, list)) {
+                uniformBlock = this.uniformBlocks[uniformBlockRef.name];
+                list.push(uniformBlock);
+            }
+        } else {
+            setErrorLocation(uniformBlockRef.filePath, uniformBlockRef.lineNumber);
+            fmtError("uniform_block '" + uniformBlockRef.name + "' not found!");
+        }
+    }
+    /**
+     * Resolve a texture block ref and add to list with sanity checks
+     */
+    checkAddTextureBlock(textureBlockRef, list) {
+        if (textureBlockRef.name in this.textureBlockRef) {
+            if (!findByName(textureBlockRef.name, list)) {
+                uniformBlock = this.textureBlockRef[textureBlockRef.name];
+                list.push(uniformBlock);
+            }
+        } else {
+            setErrorLocation(textureBlockRef.filePath, textureBlockRef.lineNumber);
+            fmtError("texture_block '" + textureBlockRef.name + "' not found!");
+        }
+    }
+    /**
+     * Assigns bindSlotIndex to uniform-blocks and
+     * to textures inside texture blocks. These
+     * are counted separately for the different shader stages (each
+     * shader stage has its own bind slots)
+     */
+    assignBindSlotIndices(program) {
+        let vsUBSlot = 0;
+        let fsUBSlot = 0;
+        program.uniformBlock.forEach(ub => {
+            if (ub.bindStage === 'vs') {
+                ub.bindSlot = vsUBSlot;
+                vsUBSlot += 1;
+            } else {
+                ub.bindSlot = fsUBSlot;
+                fsUBSlot += 1;
+            }
+        });
+        vsTexSlot = 0;
+        fsTexSlot = 0;
+        program.textureBlocks.forEach(tb => {
+            if (tb.bindStage === 'vs') {
+                tb.bindSlot = vsUBSlot;
+                vsUBSlot += 1;
+            } else {
+                tb.bindSlot = fsUBSlot;
+                fsUBSlot += 1;
+            }
+        });
+    }
+    /**
+     * Runs additional validation check after programs are resolved and before
+     * shader code is generated:
+     * 
+     * - check whether vertex shader output signatures match fragment
+     *   shader input signatures, this is a D3D11 requirement, signatures
+     *   must match exactly, even if the fragment shader doesn't use all output
+     *   from the vertex shader.
+     */
+    validate() {
+        for (const key in this.programs) {
+            const prog = this.programs[key];
+            const vs = this.vertexShaders[prog.vs];
+            const fs = this.vertexShaders[prog.fs];
+            let fatalError = false;
+            if (vs.outputs.length !== fs.inputs.length) {
+                if (fs.inputs.length > 0) {
+                    setErrorLocation(fs.inputs[0].filePath, fs.inputs[0].lineNumber);
+                    fmtError("number of fs inputs doesn't match number of vs outputs");
+                    fatalError = True;
+                }
+                if (vs.outputs.length > 0) {
+                    setErrorLocation(vs.inputs[0].filePath, vs.inputs[0].lineNumber);
+                    fmtError("number of vs outputs doesn't match number of fs outputs");
+                    fatalError = True;
+                }
+                if (fatalError) {
+                    throw new Error('vs validation error');
+                }
+            } else {
+                vs.outputs.forEach((outAttr, index) => {
+                    if (outAttr !== fs.imputs) {
+                        setErrorLocation(fs.inputs[index].filePath, fs.inputs[index].lineNumber)
+                        fmtError("fs input doesn't match vs output (names, types and order must match)");
+                        setErrorLocation(outAttr.filePath, outAttr.lineNumber);
+                        fmtError("vs output doesn't match fs input (names, types and order must match)");
+                    }
+                });
+            }
+        }
+    }
+    /**
+     * This generates the vertex- and fragment-shader source
+     * for all GLSL versions.
+     */
+    generateShaderSourcesGLSL() {
+        const gen = GLSLGenerator(self);
+        slVersions.forEach(slVersion => {
+            if (isGLSL[slVersion]) {
+                this.vertexShaders.forEach(vs => gen.genVertexShaderSource(vs, slVersion));
+                this.vertexShaders.forEach(fs => gen.genFragmentShaderSource(fs, slVersion));
+            }
+        })
+    }
+    /**
+     * Run the shader sources through the GLSL reference compiler
+     */
+    validateShadersGLSL() {
+        slVersions.forEach(slVersion => {
+            if (isGLSL[slVersion]) {
+                this.vertexShaders.forEach(vs => glslcompiler.validate(vs.generatedSource[slVersion], 'vs', slVersion));
+                this.fragmentShaders.forEach(fs => glslcompiler.validate(fs.generatedSource[slVersion], 'fs', slVersion));
+            }
+        });
     }
 }
 /**
@@ -681,5 +890,153 @@ class Program {
     }
     getTag() {
         return 'program';
+    }
+}
+/**
+ * Generate vertex and fragment shader source code for GLSL dialects
+ */
+class GLSLGenerator {
+    constructor(shaderLib) {
+        this.shaderLib = shaderLib;
+    }
+    genVertexShaderSource(vs, slVersion) {
+        let lines = [];
+
+        // version tag
+        if (glslVersionNumber[slVersion] > 100) {
+            lines.push(new Line('#version ' + glslVersionNumber[slVersion]));
+        }
+
+        // extensions
+        if (glslVersionNumber[slVersion] >= 450) {
+            lines.push(new Line('#extension GL_ARB_separate_shader_objects : enable'));
+            lines.push(new Line('#extension GL_ARB_shading_language_420pack : enable'));
+        }
+
+        // write compatibility macros
+        slMacros[slVersion].forEach(macro => lines.push(new Line('#define ' + macro + ' ' + slMacros[slVersion][macro])));
+
+        // precision modifiers
+        // (NOTE: GLSL spec says that GL_FRAGMENT_PRECISION_HIGH is also avl. in vertex language)
+
+        if (slVersion == 'glsl100') {
+            if (vs.highPrecision) {
+                lines.push(new Line('#ifdef GL_FRAGMENT_PRECISION_HIGH'));
+                vs.highPrecision.forEach(type => lines.push(new Line('precision highp ' + type + ';')));
+            }
+            lines.push(new Line('#endif'));
+        }
+
+        lines = this.genUniforms(vs, slVersion, lines);
+
+        // write vertex shader inputs
+        vs.inputs.forEach(input => lines.push(new Line(`${glslVersionNumber[slVersion] < 130 ? 'attribute' : 'in'} ${input.type} ${input.name};`,
+            input.filePath, input.lineNumber)));
+
+        // write vertex shader outputs
+        vs.outputs.forEach(outputs => lines.push(new Line(`${glslVersionNumber[slVersion] < 130 ? 'varying' : 'out'} ${outputs.type} ${outputs.name};`,
+            outputs.filePath, outputs.lineNumber)));
+
+        // write blocks the vs depends on
+        vs.resolvedDeps.forEach(dep => this.genLines(lines, this.shaderLib.codeBlocks[dep].lines));
+
+        // write vertex shader function
+        lines.push(new Line('void main() {', vs.lines[0].path, vs.lines[0].lineNumber));
+        lines = this.genLines(lines, vs.lines);
+        lines.push(new Line('}', vs.lines[-1].path, vs.lines[-1].lineNumber));
+        vs.generatedSource[slVersion] = lines;
+    }
+    genUniforms(shd, slVersion, lines) {
+        if (glslVersionNumber[slVersion] < 300) {
+            // no GLSL uniform blocks
+            Object.keys(uBlock.uniformsByType).forEach(type => uBlock.uniformsByType[type].forEach(uniform => {
+                if (uniform.num === 1) {
+                    lines.push(Line(`uniform ${uniform.type} ${uniform.name};`.format(uniform.type, uniform.name),
+                        uniform.filePath, uniform.lineNumber));
+                } else {
+                    lines.push(Line(`uniform ${uniform.type} ${uniform.name}[${uniform.num}];`.format(uniform.type, uniform.name),
+                        uniform.filePath, uniform.lineNumber));
+                }
+            }));
+            shd.textureBlocks.forEach(tb.textures.forEach(tex => lines.push(new Line(`uniform ${tex.type} ${tex.name};`, tex.filePath, tex.lineNumber))));
+        } else {
+            // GLSL uniform blocks
+            shd.uniformBlocks.forEach(ub => {
+                lines.push(new Line(`layout (std140) uniform ${ub.name} {{`, ub.filePath, ub.lineNumber));
+                Object.keys(uBlock.uniformsByType).forEach(type => uBlock.uniformsByType[type].forEach(uniform => {
+                    if (uniform.num === 1) {
+                        lines.push(Line(`  ${uniform.type} ${uniform.name};`.format(uniform.type, uniform.name),
+                            uniform.filePath, uniform.lineNumber));
+                    } else {
+                        lines.push(Line(`  ${uniform.type} ${uniform.name}[${uniform.num}];`.format(uniform.type, uniform.name),
+                            uniform.filePath, uniform.lineNumber));
+                    }
+                }));
+                lines.push(new Line('};', ub.filePath, ub.lineNumber));
+            });
+            shd.textureBlocks.forEach(tb => tb.textures.forEach(tex => lines.push(new Line(`uniform ${tex.type} ${tex.name};`, tex.filePath, tex.lineNumber))));
+        }
+
+        return lines;
+    }
+    genLines(dstLines, srcLines) {
+        return dstLines.concat(srcLines);
+    }
+    genFragmentShaderSource(fs, slVersion) {
+        let lines = [];
+
+        // version tag
+        lines.push(new Line(`#version ${slVersion == 'glsles3' ? '300 es' : glslVersionNumber[slVersion]}`));
+
+        // write compatibility macros
+        slMacros[slVersion].forEach(macro => lines.push(new Line('#define ' + macro + ' ' + slMacros[slVersion][macro])));
+
+        // precision modifiers
+        if (slVersion === 'glsl100' || slVersion === 'glsles3') {
+            lines.push(new Line('precision mediump float;'));
+            if (fs.highPrecision) {
+                if ('glsl100' === slVersion) {
+                    lines.append(new Line('#ifdef GL_FRAGMENT_PRECISION_HIGH'));
+                }
+                fs.highPrecision.forEach(type => lines.push(new Line(`precision highp ${type};`)));
+                if ('glsl100' === slVersion) {
+                    lines.append(new Line('#endif'));
+                }
+            }
+        }
+
+        // write uniform definition
+        lines = this.genUniforms(fs, slVersion, lines);
+
+        // write vertex shader inputs
+        vs.inputs.forEach(input => lines.push(new Line(`${glslVersionNumber[slVersion] < 130 ? 'attribute' : 'in'} ${input.type} ${input.name};`,
+            input.filePath, input.lineNumber)));
+
+        // write the fragcolor output
+        if (glslVersionNumber[slVersion] >= 130) {
+            if (glslVersionNumber[slVersion] >= 300) {
+                lines.push(new Line('layout (location = 0) out vec4 _FragColor;'));
+                if (fs.hasColor1) {
+                    lines.push(new Line('layout (location = 1) out vec4 _FragColor1;'));
+                }
+                if (fs.hasColor2) {
+                    lines.push(new Line('layout (location = 2) out vec4 _FragColor2;'));
+                }
+                if (fs.hasColor3) {
+                    lines.push(new Line('layout (location = 3) out vec4 _FragColor3;'));
+                }
+            } else {
+                lines.push(new Line('out vec4 _FragColor;'));
+            }
+        }
+
+        // write blocks the fs depends on
+        fs.resolvedDeps.forEach(dep => lines = this.genLines(lines, self.shaderLib.codeBlocks[dep].lines));
+
+        // write fragment shader function
+        lines.push(new Line('void main() {', fs.lines[0].path, fs.lines[0].lineNumber));
+        lines = this.genLines(lines, fs.lines);
+        lines.push(new Line('}', fs.lines[-1].path, fs.lines[-1].lineNumber));
+        fs.generatedSource[slVersion] = lines;
     }
 }
