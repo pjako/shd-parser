@@ -1,18 +1,32 @@
 import {Texture} from './Texture';
 export class Pass {
     readonly colorAttachments: ColorAttachment[] = [];
-    readonly depthAttachment: DepthAttachment;
+    readonly depthAttachments: DepthAttachment;
     readonly storeAction: StoreAction;
-    constructor(colorAttachments: ColorAttachment[], depthAttachment: DepthAttachment, storeAction: StoreAction) {
+    constructor({colorAttachments, depthAttachments, storeAction}: PassOptions) {
         if (!colorAttachments) {
             this.colorAttachments.push(new ColorAttachment());
         }
         else {
-            this.colorAttachments.push.apply(this.colorAttachments, colorAttachments);
+            this.colorAttachments.push.apply(this.colorAttachments, colorAttachments.map(ca => new ColorAttachment(ca)));
         }
-        this.depthAttachment = depthAttachment;
+        // this.depthAttachment = depthAttachments;
         this.storeAction = storeAction !== void 0 ? storeAction : StoreAction.DontCare;
     }
+}
+
+export interface ColorAttachmentsOptions {
+    clearColor: [number, number, number, number];
+}
+
+export interface DepthAttachmentsOptions {
+    
+}
+
+export interface PassOptions {
+    colorAttachments: ColorAttachmentsOptions[];
+    depthAttachments?: DepthAttachmentsOptions[];
+    storeAction?: StoreAction;
 }
 
 export class ColorAttachment {

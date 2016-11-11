@@ -1,4 +1,4 @@
-import { IndexBuffer, VertexBuffer } from './Buffer';
+import { IndexBuffer, VertexBuffer } from './Buffer.ts';
 export class Mesh {
     readonly primitiveType: PrimitiveType;
     readonly vertexBuffers: VertexBuffer[];
@@ -6,6 +6,10 @@ export class Mesh {
     readonly indexFormat?: IndexFormat;
     readonly indexSize?: number;
     readonly meshAttributes?: MeshAttribute[];
+    constructor(vertexBuffers, indexBuffer) {
+        this.vertexBuffers = vertexBuffers.map( vb => new VertexBuffer(vb));
+        this.indexBuffer = new IndexBuffer(indexBuffer);
+    }
 }
 
 /**

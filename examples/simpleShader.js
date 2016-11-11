@@ -1,18 +1,18 @@
 const shd = `//------------------------------------------------------------------------------
 //  triangle.shd
-//  Annotated GLSL shaders for Triangle sample.
+//  Simple Shader for flat & colored Triangle
 //------------------------------------------------------------------------------
 @vs vs
-@in vec4 position
-@in vec4 color0
-@out vec4 color
-    _position = position;
+@in vec3 position
+@in vec3 color0
+@out vec3 color
+    _position = vec4(position, 1);
     color = color0;
 @end
 
 @fs fs
-@in vec4 color
-    _color = color;
+@in vec3 color
+    _color = vec4(color, 1);
 @end
 
 @program Triangle vs fs`;

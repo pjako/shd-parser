@@ -1,53 +1,54 @@
-import createGfx from '../ts/gfx';
+import { createGraphicsContext, BatchLoadOptions, BlendFactor, CompareFunc, PrimitiveType } from '../ts/gfx.ts';
 import * as shaderData from './shaders/triangle.shd';
-const device = createGfx({
-    canvas: document.querySelector('#frontBuffer') as HTMLCanvasElement,
-    shaderData: shaderData,
+
+createGraphicsContext({ canvas: '#frontBuffer' })
+.batchLoad(shaderData as BatchLoadOptions)
+.batchLoad({
     passes: {
         Default: {
-            colorAttachments: [{clearColor: [0.5, 0.5, 0.5, 1.0]}]
+            colorAttachments: [{ clearColor: [0.5, 0.5, 0.5, 1.0] }]
         }
     },
-    piplineStates: {
+    pipelineStates: {
         Overwrite: {
-            depthCmpFunc: 'Always',
+            depthCmpFunc: CompareFunc.Always,
             depthWriteEnabled: false,
             cullFaceEnabled: false,
         }
     },
     pipelines: {
         Triangle: {
-            primitiveType: 'triangle',
             program: 'Triangle',
-            state: 'Overwrite'
+            pipelineState: 'Overwrite'
         }
     },
     meshes: {
         Triangle: {
+            primitiveType: PrimitiveType.Triangles,
             vertexBuffers: [{
                 data: [
                        0,  0.5, 0.5, 1, 0, 0,
                      0.5, -0.5, 0.5, 0, 1, 0,
                     -0.5, -0.5, 0.5, 0, 0, 1
                 ],
-                layout: [{name: 'position'}, {name: 'color0'}]
+                layout: [{ name: 'position' }, { name: 'color0' }]
             }]
         }
-    }
+    },
     drawStates: {
         Triangle: {
             pipeline: 'Triangle',
             mesh: 'Triangle'
         }
-    }
-}).start(ctx => {
+    },
+}).onFrame(ctx => {
+    debugger;
     const {Default} = ctx.passes;
     const {Triangle} = ctx.drawStates;
     ctx
-    .beginPass(Default)
-    .setViewport(0, 0, ctx.width, ctx.height)
-    .setDrawState(Triangle)
-    .draw(0, 3)
-    .endPass()
-    .commitFrame();
+        .beginPass(Default)
+        .setDrawState(Triangle)
+        .draw(0, 3)
+        .endPass()
+        .commitFrame();
 });

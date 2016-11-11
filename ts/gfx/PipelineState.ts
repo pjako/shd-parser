@@ -43,13 +43,17 @@ export class PipelineState implements PipelineStateOptions {
     readonly cullFaceEnabled: boolean;
     readonly cullFace: Face;
     readonly scissorTestEnabled: boolean;
-    constructor(args) {
-        this.name = args;
+    constructor(name, args) {
+        this.name = name;
         this.blendEnabled = args.blendEnabled || false;
         this.blendSrcFactor = typeof args.blendSrcFactor === 'number' ? args.blendSrcFactor : some(BlendFactor[args.blendSrcFactor], BlendFactor.One);
         this.blendDstFactor = typeof args.blendDstFactor === 'number' ? args.blendDstFactor : some(BlendFactor[args.blendSrcFactor], BlendFactor.Zero);
         this.blendOp = typeof args.blendOp === 'number' ? args.blendOp : some(BlendOp[args.blendOp], BlendOp.Add);
-        this.blendColor = [args.blendColor[0] || 1, args.blendColor[1] || 1, args.blendColor[2] || 1, args.blendColor[3] || 1];
+        if (args.blendColor) {
+            this.blendColor = [args.blendColor[0] || 1, args.blendColor[1] || 1, args.blendColor[2] || 1, args.blendColor[3] || 1];
+        } else {
+            this.blendColor = [1, 1, 1, 1];
+        }
         this.blendSrcFactorRGB = typeof args.blendSrcFactorRGB === 'number' ? args.blendSrcFactorRGB : some(BlendFactor[args.blendSrcFactorRGB], BlendFactor.One);
         this.blendDstFactorRGB = typeof args.blendDstFactorRGB === 'number' ? args.blendDstFactorRGB : some(BlendFactor[args.blendSrcFactorRGB], BlendFactor.Zero);
         this.blendOpRGB = typeof args.blendOpRGB === 'number' ? args.blendOpRGB : some(BlendOp[args.blendOpRGB], BlendOp.Add);
@@ -87,9 +91,6 @@ export class PipelineState implements PipelineStateOptions {
         this.cullFaceEnabled = args.cullFaceEnabled || false;
         this.cullFace = typeof args.cullFace === 'number' ? args.cullFace : some(Face[args.cullFace], Face.Back);
         this.scissorTestEnabled = args.scissorTestEnabled || false;
-    }
-    fork(overwriteData: any) {
-        return new PipelineState(this);
     }
 }
 const dummyOldState: PipelineStateOptions = { colorWriteMask: [void 0, void 0, void 0, void 0], blendColor: [void 0, void 0, void 0, void 0] };

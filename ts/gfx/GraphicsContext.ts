@@ -1,22 +1,31 @@
-import { Pass, LoadAction, StoreAction } from './Pass';
-import { DrawState } from './DrawState';
-import { Pipeline } from './Pipeline';
-import { PipelineState, applyPipelineState, PipelineStateOptions } from './PipelineState';
-import { Mesh, IndexFormat, PrimitiveType } from './Mesh';
+import { Pass, LoadAction, StoreAction, PassOptions } from './Pass.ts';
+import { VertexShader, FragmentShader, Program } from './Program.ts';
+import { DrawState } from './DrawState.ts';
+import { Pipeline } from './Pipeline.ts';
+import { PipelineState, applyPipelineState, PipelineStateOptions } from './PipelineState.ts';
+import { Buffer, Usage } from './Buffer.ts';
+import { Mesh, IndexFormat, PrimitiveType } from './Mesh.ts';
 
 const getTime = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now();
 const start = getTime();
 
-const requestFrame = window[['', 'ms', 'moz', 'webkit', 'o']
+const requestFrame = window.requestAnimationFrame || window[['ms', 'moz', 'webkit', 'o']
     .filter(prefix => !!window[prefix + 'RequestAnimationFrame'])[0] + 'RequestAnimationFrame'] || (cb => setTimeout(cb, 16));
+
+const objForEach = (obj, fn: (value: any, key: string) => void): void => Object.keys(obj).forEach(k => fn(obj[k], k));
 
 export class GraphicsContext {
     readonly passes: { [code: string]: Pass; } = {};
     readonly drawStates: { [code: string]: DrawState; } = {};
+    readonly vertexShaders: { [code: string]: VertexShader; } = {};
+    readonly fragmentShaders: { [code: string]: FragmentShader; } = {};
+    readonly programs: { [code: string]: Program; } = {};
+    readonly buffers: { [code: string]: Buffer; } = {};
     readonly meshes: { [code: string]: Mesh; } = {};
-    readonly piplines: { [code: string]: Pipeline; } = {};
+    readonly pipelines: { [code: string]: Pipeline; } = {};
     readonly pipelineStates: { [code: string]: PipelineState; } = {};
     readonly canvas: HTMLCanvasElement;
+    private updateFn: (context: GraphicsContext) => void;
     private nextFrameRequired: boolean = false;
     private frameSheduled: boolean = false;
     private _gl: WebGLRenderingContext;
@@ -39,6 +48,9 @@ export class GraphicsContext {
     }
     constructor({canvas, width, height, alpha = false, depth = true, stencil = false, antiAlias = true, preMultipliedAlpha = true, preserveDrawingBuffer = false, preferLowPowerToHighPerformance = false, highDPI = false, failIfMajorPerformanceCaveat = false}: GraphicsContextOptions) {
         this.canvas = document.querySelector(canvas) as HTMLCanvasElement;
+        if (!this.canvas) {
+            throw new Error(`There is no CanvasElement named '${canvas}'`);
+        }
         this.requireNextFrame();
         const glContextAttrs = {
             alpha, depth, stencil, antialias: antiAlias, premultipliedAlpha: preMultipliedAlpha,
@@ -54,21 +66,124 @@ export class GraphicsContext {
         this.gl.viewport(0, 0, this.width, this.height);
     }
     private requireNextFrame(): void {
-        this.frameSheduled = true;
-        requestFrame(() => this.update());
+        if (!this.frameSheduled) {
+            this.frameSheduled = true;
+            requestFrame(() => {
+                this.frameSheduled = false;
+                this.update();
+            });
+        }
     }
     private update(): void {
         if (!this.nextFrameRequired) {
-            this.frameSheduled = false;
             return;
         }
-        this.requireNextFrame();
         this.nextFrameRequired = false;
+        this.requireNextFrame();
+        if (this.updateFn) {
+            this.updateFn(this);
+        }
     }
     load(): GraphicsContext {
         return this;
     }
-    batchLoad(ags: BatchLoadOptions): GraphicsContext {
+    createPass(name: string, passOptions: PassOptions): Pass {
+        if (this.passes[name]) {
+            throw new Error(`Pass named '${name}' already exists.`);
+        }
+        return this.passes[name] = new Pass(passOptions);
+    }
+    createVertexShader(name: string, source): VertexShader {
+        if (this.vertexShaders[name]) {
+            throw new Error(`VertexShader named '${name}' already exists.`);
+        }
+        return this.vertexShaders[name] = new VertexShader(this.gl, name, source);
+    }
+    createFragmentShader(name: string, source): FragmentShader {
+        if (this.fragmentShaders[name]) {
+            throw new Error(`FragmentShader named '${name}' already exists.`);
+        }
+        return this.fragmentShaders[name] = new FragmentShader(this.gl, name, source);
+    }
+    createProgram(name: string, vs, fs): FragmentShader {
+        if (this.programs[name]) {
+            throw new Error(`Program named '${name}' already exists.`);
+        }
+        const vertexShader = this.vertexShaders[vs];
+        const fragmentShader = this.fragmentShaders[fs];
+        if (!vertexShader) {
+            throw new Error(`VertexShader named '${vs}' does not exist.`);
+        }
+        if (!fragmentShader) {
+            throw new Error(`VertexShader named '${fs}' does not exist.`);
+        }
+        return this.programs[name] = new Program(this.gl, name, vertexShader, fragmentShader);
+    }
+    createPipelineState(name: string, options: PipelineStateOptions): PipelineState {
+        if (this.pipelineStates[name]) {
+            throw new Error(`Pipeline State named '${name}' already exists.`);
+        }
+        return this.pipelineStates[name] = new PipelineState(name, options);
+    }
+    createPipeline(name: string, program: string, pipelineState: string): Pipeline {
+        if (this.pipelineStates[name]) {
+            throw new Error(`Pipeline State named '${name}' already exists.`);
+        }
+        const prog = this.programs[program];
+        const pipeState = this.pipelineStates[pipelineState];
+        if (!prog) {
+            throw new Error(`Program named '${program}' does not exist.`);
+        }
+        if (!pipeState) {
+            throw new Error(`PipelineState named '${pipelineState}' does not exist.`);
+        }
+        return this.pipelines[name] = new Pipeline(name, prog, pipeState);
+    }
+    createMesh(name: string, vertexBuffers: Object[], pipeline: Object): DrawState {
+        if (this.pipelineStates[name]) {
+            throw new Error(`Mesh State named '${name}' already exists.`);
+        }
+        return this.meshes[name] = new Mesh(name, vertexBuffers, pipeline);
+    }
+    createDrawState(name: string, mesh: string, pipeline: string): DrawState {
+        if (this.pipelineStates[name]) {
+            throw new Error(`DrawState State named '${name}' already exists.`);
+        }
+        const meshObj = this.meshes[mesh];
+        const pipe = this.pipelines[pipeline];
+        if (!meshObj) {
+            throw new Error(`Mesh named '${mesh}' does not exist.`);
+        }
+        if (!pipe) {
+            throw new Error(`Pipeline named '${pipeline}' does not exist.`);
+        }
+        return this.drawStates[name] = new DrawState(name, meshObj, pipe);
+    }
+    batchLoad({ passes, vertexShaders, fragmentShaders, programs, textures, meshes, pipelineStates, pipelines, drawStates }: BatchLoadOptions): GraphicsContext {
+        if (passes) {
+            objForEach(passes, (passOptions, passName) => this.createPass(passName, passOptions));
+        }
+        if (vertexShaders) {
+            objForEach(vertexShaders, (s, shaderName) => this.createVertexShader(shaderName, s.source));
+        }
+        if (fragmentShaders) {
+            objForEach(fragmentShaders, (s, shaderName) => this.createFragmentShader(shaderName, s.source));
+        }
+        if (programs) {
+            objForEach(programs, (shaderNames, programName) => this.createProgram(programName, shaderNames.vs, shaderNames.fs));
+        }
+        if (pipelineStates) {
+            objForEach(pipelineStates, (state, name) => this.createPipelineState(name, state));
+        }
+        if (pipelines) {
+            objForEach(pipelines, (pipelineData, name) => this.createPipeline(name, pipelineData.program, pipelineData.pipelineState));
+        }
+        if (meshes) {
+            objForEach(meshes, (mesh, name) => this.createMesh(name, mesh.vertexBuffers, mesh.indexBuffer));
+        }
+        if (drawStates) {
+            objForEach(drawStates, (drawState, name) => this.createDrawState(name, drawState.pipeline, drawState.mesh));
+        }
         return this;
     }
     onContexLoss(callback: (newContext: GraphicsContext) => void): GraphicsContext {
@@ -78,9 +193,29 @@ export class GraphicsContext {
         return this;
     }
     onFrame(updateFn: (context: GraphicsContext) => void): GraphicsContext {
-        if (!this.frameSheduled) {
+        this.updateFn = updateFn;
+        if (!this.nextFrameRequired) {
+            this.nextFrameRequired = true;
             this.requireNextFrame();
         }
+        return this;
+    }
+    uploadDataToBuffer(bufferOrName, data:ArrayBufferView, usage:Usage): GraphicsContext {
+        const { gl } = this;
+        const buffer: Buffer = bufferOrName instanceof Buffer ? bufferOrName as Buffer : this.buffers['name'];
+        if (!buffer) {
+            throw new Error(`Buffer does not exist.`);
+        }
+        buffer.uploadData(data, usage);
+        return this;
+    }
+    uploadSubDataToBuffer(bufferOrName, data:ArrayBufferView, offset:number): GraphicsContext {
+        const { gl } = this;
+        const buffer: Buffer = bufferOrName instanceof Buffer ? bufferOrName as Buffer : this.buffers['name'];
+        if (!buffer) {
+            throw new Error(`Buffer does not exist.`);
+        }
+        buffer.uploadSubData(data, offset);
         return this;
     }
     beginPass(pass: Pass): GraphicsContext {
@@ -226,20 +361,6 @@ export interface GraphicsContextOptions {
     highDPI?: boolean;
 }
 
-export interface ColorAttachmentsOptions {
-    clearColor: [number, number, number, number];
-}
-
-export interface DepthAttachmentsOptions {
-    
-}
-
-export interface PassOptions {
-    colorAttachments: ColorAttachmentsOptions[];
-    depthAttachments?: DepthAttachmentsOptions[];
-    storeAction?: StoreAction;
-}
-
 export interface ProgramOptions {
     vs: string;
     fs: string;
@@ -259,7 +380,7 @@ export interface VertexBufferOptions {
     layout: AttributeOptions[];
 }
 export interface IndexBufferOptions {
-    name?:string;
+    name?: string;
     data: number[];
 }
 export interface MeshOptions {
@@ -268,13 +389,13 @@ export interface MeshOptions {
     indexBuffer?: IndexBufferOptions;
 }
 export interface DrawStateOptions {
-    mesh:string;
-    pipeline:string;
-    textures?:TextureSampler[];
+    mesh: string;
+    pipeline: string;
+    textures?: TextureSampler[];
 }
 export interface TextureSampler {
-    texture:string;
-    sampler:string;
+    texture: string;
+    sampler: string;
 }
 export interface SamplerOptions {
     type: string;
@@ -287,9 +408,15 @@ export interface TextureOptions {
     data: number[];
 }
 
+export interface ShaderOptions {
+    source: string;
+}
+
 export interface BatchLoadOptions {
     passes: { [code: string]: PassOptions; };
     pipelineStates: { [code: string]: PipelineStateOptions; };
+    vertexShaders?: { [code: string]: ShaderOptions; };
+    fragmentShaders?: { [code: string]: ShaderOptions; };
     programs?: { [code: string]: ProgramOptions; };
     pipelines: { [code: string]: PipelineOptions; };
     meshes: { [code: string]: MeshOptions; };

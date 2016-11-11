@@ -16,14 +16,35 @@ export class Buffer {
     readonly buffer: WebGLBuffer;
     readonly bindTarget: number;
     readonly bindingParam: number;
+    private _size: number = 0;
+    get size(): number {
+        return this._size;
+    }
     constructor(gl: WebGLRenderingContext, name: string, bindTarget: number, bindingParam: number) {
         this.gl = gl;
         this.buffer = gl.createBuffer();
         this.bindTarget = bindTarget;
         this.bindingParam = bindingParam;
     }
-    uploadData(data: Float32Array, usage: Usage) {
-        console.error('Not implemented yet.');
+    uploadData(data: ArrayBufferView, usage: Usage) {
+        const { gl } = this;
+        const oldBindTarget = gl.getParameter(this.bindingParam);
+        gl.bindBuffer(this.bindTarget, this.buffer);
+        gl.bufferData(this.bindTarget, data, usage);
+        this._size = data.byteLength;
+        gl.bindBuffer(this.bindTarget, oldBindTarget);
+        return this;
+    }
+    uploadSubData(data: ArrayBufferView, offset:number) {
+        const { gl } = this;
+        if (offset + data.byteLength > this._size) {
+            throw new Error(`Data is too large ${offset + data.byteLength} > ${this._size}`);
+        }
+        const oldBindTarget = gl.getParameter(this.bindingParam);
+        gl.bindBuffer(this.bindTarget, this.buffer);
+        gl.bufferSubData(this.bindTarget, offset, data);
+        this._size = data.byteLength;
+        gl.bindBuffer(this.bindTarget, oldBindTarget);
         return this;
     }
 }

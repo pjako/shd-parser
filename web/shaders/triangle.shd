@@ -1,11 +1,11 @@
 //------------------------------------------------------------------------------
 //  triangle.shd
-//  Annotated GLSL shaders for Triangle sample.
+//  Simple Shader for flat & colored Triangle
 //------------------------------------------------------------------------------
 @vs vs
 @in vec3 position
 @in vec3 color0
-@out vec4 color
+@out vec3 color
     _position = vec4(position, 0);
     color = color0;
 @end
