@@ -1,37 +1,37 @@
 const GL = WebGLRenderingContext;
 
 class ProgramSampler {
-  readonly name: string;
-  readonly index: number;
-  readonly type: number;
-  readonly size: number;
-  readonly location: any;
-  readonly textureUnit: number;
-  constructor(name: string, index: number, type: number, size: number, location, textureUnit: number) {
-      this.name = name;
-      this.index = index;
-      this.type = type;
-      this.size = size;
-      this.location = location;
-      this.textureUnit = textureUnit;
-  }
+    readonly name: string;
+    readonly index: number;
+    readonly type: number;
+    readonly size: number;
+    readonly location: any;
+    readonly textureUnit: number;
+    constructor(name: string, index: number, type: number, size: number, location, textureUnit: number) {
+        this.name = name;
+        this.index = index;
+        this.type = type;
+        this.size = size;
+        this.location = location;
+        this.textureUnit = textureUnit;
+    }
 }
 
 class ProgramUniform {
-  readonly name: string;
-  readonly index: number;
-  readonly type: number;
-  readonly size: number;
-  readonly location: any;
-  readonly apply: (gl: WebGLRenderingContext, index: number, argument: any) => void;
-  constructor(name: string, index: number, type: number, size: number, location) {
-      this.name = name;
-      this.index = index;
-      this.type = type;
-      this.size = size;
-      this.location = location;
-      this.apply = findUniformSetForType(type);
-  }
+    readonly name: string;
+    readonly index: number;
+    readonly type: number;
+    readonly size: number;
+    readonly location: any;
+    readonly apply: (gl: WebGLRenderingContext, index: number, argument: any) => void;
+    constructor(name: string, index: number, type: number, size: number, location) {
+        this.name = name;
+        this.index = index;
+        this.type = type;
+        this.size = size;
+        this.location = location;
+        this.apply = findUniformSetForType(type);
+    }
 }
 
 export class Program {
@@ -39,34 +39,44 @@ export class Program {
     readonly vertexShader: VertexShader;
     readonly fragmentShader: FragmentShader;
     readonly program: WebGLProgram;
-    readonly attributes: { [code: string]: Attribute; };
+    private _isInitialized: boolean = false;
+    get isInitialized(): boolean {
+        return this._isInitialized;
+    }
+    readonly attributes: { [code: string]: Attribute; } = {};
     readonly samplers: { [code: string]: ProgramSampler; } = {};
     readonly uniforms: { [code: string]: ProgramUniform; } = {};
     constructor(gl: WebGLRenderingContext, name: string, vs: VertexShader, fs: FragmentShader) {
-        const prog = gl.createProgram();
+        const prog = this.program = gl.createProgram();
+        this.gl = gl;
         gl.attachShader(prog, vs.shader);
         gl.attachShader(prog, fs.shader);
         gl.linkProgram(prog);
-        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        // this.initialize();
+    }
+    initialize(): void {
+        const { gl, program, _isInitialized } = this;
+        if (_isInitialized) {
+            // already initialized
+            return;
+        }
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
             throw new Error('Failed to link shader program!');
         }
-        this.vertexShader = vs;
-        this.fragmentShader = fs;
-        this.gl = gl;
-        this.program = prog;
+        this._isInitialized = true;
         // handle attributes
-        const attributes: { [code: string]: Attribute; } = {};
-        const numActiveAttributes: number = gl.getProgramParameter(prog, gl.ACTIVE_ATTRIBUTES);
+        const { attributes } = this;
+        const numActiveAttributes: number = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
         for (let i = 0; numActiveAttributes > i; i++) {
-            const activeAttribute: WebGLActiveInfo = gl.getActiveAttrib(prog, i);
+            const activeAttribute: WebGLActiveInfo = gl.getActiveAttrib(program, i);
             attributes[activeAttribute.name] = {
+                index: i,
                 name: activeAttribute.name,
                 size: activeAttribute.size,
                 type: activeAttribute.type,
-                location: gl.getAttribLocation(prog, activeAttribute.name)
+                location: gl.getAttribLocation(program, activeAttribute.name)
             };
         }
-        this.attributes = attributes;
 
         // handle uniforms & samplers
         const numUniforms: number = gl.getProgramParameter(this.program, GL.ACTIVE_UNIFORMS);
@@ -79,10 +89,10 @@ export class Program {
                 const activeUniform = gl.getActiveUniform(this.program, i);
                 const location = gl.getUniformLocation(this.program, activeUniform.name);
                 if (isSamplerType(activeUniform.type)) {
-                    this.samplers[activeUniform.name.replace('[]', '')] = new ProgramSampler( activeUniform.name, i, activeUniform.type, activeUniform.size, location, numSamplers );
+                    this.samplers[activeUniform.name.replace('[]', '')] = new ProgramSampler(activeUniform.name, i, activeUniform.type, activeUniform.size, location, numSamplers);
                     gl.uniform1i(location, numSamplers++);
                 } else {
-                    this.uniforms[activeUniform.name.replace('[]', '')] = new ProgramUniform( activeUniform.name, i, activeUniform.type, activeUniform.size, location );
+                    this.uniforms[activeUniform.name.replace('[]', '')] = new ProgramUniform(activeUniform.name, i, activeUniform.type, activeUniform.size, location);
 
                 }
             }
@@ -92,10 +102,11 @@ export class Program {
 }
 
 export interface Attribute {
-    name:string;
-    size:number;
-    type:number;
-    location:number;
+    index: number;
+    name: string;
+    size: number;
+    type: number;
+    location: number;
 }
 
 export abstract class Shader {
@@ -123,7 +134,7 @@ export class FragmentShader extends Shader {
     }
 }
 
-const isSamplerType:(type:number) => boolean = type => type === GL.SAMPLER_2D || type == GL.SAMPLER_CUBE;
+const isSamplerType: (type: number) => boolean = type => type === GL.SAMPLER_2D || type == GL.SAMPLER_CUBE;
 
 function setUniform1f(gl, index: number, argument: any): void {
     if (argument instanceof Float32Array) {
@@ -217,44 +228,44 @@ function setUniformMatrix3(gl: WebGLRenderingContext, index: number, argument: a
 
 function setUniformMatrix4(gl: WebGLRenderingContext, index: number, argument: any): void {
     if (argument instanceof Float32Array) {
-    return gl.uniformMatrix4fv(index, false, argument);
+        return gl.uniformMatrix4fv(index, false, argument);
     }
     throw new Error('Argument has invalid type');
 }
 
 function findUniformSetForType(type: number): (gl: WebGLRenderingContext, index: number, argument: any) => void {
     switch (type) {
-    case GL.FLOAT:
-        return setUniform1f;
-    case GL.FLOAT_VEC2:
-        return setUniform2f;
-    case GL.FLOAT_VEC3:
-        return setUniform3f;
-    case GL.FLOAT_VEC4:
-        return setUniform4f;
-    case GL.FLOAT_MAT2:
-        return setUniformMatrix2;
-    case GL.FLOAT_MAT3:
-        return setUniformMatrix3;
-    case GL.FLOAT_MAT4:
-        return setUniformMatrix4;
-    case GL.BOOL:
-        return setUniform1i;
-    case GL.BOOL_VEC2:
-        return setUniform2i;
-    case GL.BOOL_VEC3:
-        return setUniform3i;
-    case GL.BOOL_VEC4:
-        return setUniform4i;
-    case GL.INT:
-        return setUniform1i;
-    case GL.INT_VEC2:
-        return setUniform2i;
-    case GL.INT_VEC3:
-        return setUniform3i;
-    case GL.INT_VEC4:
-        return setUniform4i;
-    default:
-        throw new Error('Invalid uniform type.');
+        case GL.FLOAT:
+            return setUniform1f;
+        case GL.FLOAT_VEC2:
+            return setUniform2f;
+        case GL.FLOAT_VEC3:
+            return setUniform3f;
+        case GL.FLOAT_VEC4:
+            return setUniform4f;
+        case GL.FLOAT_MAT2:
+            return setUniformMatrix2;
+        case GL.FLOAT_MAT3:
+            return setUniformMatrix3;
+        case GL.FLOAT_MAT4:
+            return setUniformMatrix4;
+        case GL.BOOL:
+            return setUniform1i;
+        case GL.BOOL_VEC2:
+            return setUniform2i;
+        case GL.BOOL_VEC3:
+            return setUniform3i;
+        case GL.BOOL_VEC4:
+            return setUniform4i;
+        case GL.INT:
+            return setUniform1i;
+        case GL.INT_VEC2:
+            return setUniform2i;
+        case GL.INT_VEC3:
+            return setUniform3i;
+        case GL.INT_VEC4:
+            return setUniform4i;
+        default:
+            throw new Error('Invalid uniform type.');
     }
 }

@@ -1,11 +1,16 @@
-import { Pass, LoadAction, StoreAction, PassOptions } from './Pass.ts';
-import { VertexShader, FragmentShader, Program } from './Program.ts';
-import { DrawState } from './DrawState.ts';
-import { Pipeline } from './Pipeline.ts';
-import { PipelineState, applyPipelineState, PipelineStateOptions } from './PipelineState.ts';
-import { Buffer, Usage } from './Buffer.ts';
-import { Mesh, IndexFormat, PrimitiveType } from './Mesh.ts';
+import { Pass, LoadAction, StoreAction, PassOptions } from './Pass';
+import { VertexShader, FragmentShader, Program } from './Program';
+import { DrawState } from './DrawState';
+import { Pipeline } from './Pipeline';
+import { PipelineState, applyPipelineState, PipelineStateOptions } from './PipelineState';
+import { Buffer, Usage, IndexFormat } from './Buffer';
+import { Mesh, PrimitiveType } from './Mesh';
+import { SamplerState, SamplerStateOptions } from './SamplerState';
+import { Capabilities } from './Capabilities';
+import Defaults from './Defaults';
 
+const GL = WebGLRenderingContext;
+const emptyArray = [];
 const getTime = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now();
 const start = getTime();
 
@@ -25,12 +30,21 @@ export class GraphicsContext {
     readonly pipelines: { [code: string]: Pipeline; } = {};
     readonly pipelineStates: { [code: string]: PipelineState; } = {};
     readonly canvas: HTMLCanvasElement;
+    readonly capabilities: Capabilities;
+    private enabledVertexAttributeArrays: number[] = [];
     private updateFn: (context: GraphicsContext) => void;
     private nextFrameRequired: boolean = false;
     private frameSheduled: boolean = false;
     private _gl: WebGLRenderingContext;
     private _currentDrawState: DrawState;
+    private _currentPass: Pass;
     private pipelineStateCache: PipelineStateOptions = { colorWriteMask: [void 0, void 0, void 0, void 0], blendColor: [void 0, void 0, void 0, void 0] };
+    
+    readonly vendor: string;
+    readonly rendererName: string;
+    get currentPass(): Pass {
+        return this._currentPass;
+    }
     get currentDrawState(): DrawState {
         return this._currentDrawState;
     }
@@ -63,7 +77,11 @@ export class GraphicsContext {
             this.canvas.height = height;
         }
         this._gl = (this.canvas.getContext("webgl", glContextAttrs) || this.canvas.getContext("experimental-webgl", glContextAttrs)) as WebGLRenderingContext;
+        this.capabilities = new Capabilities(this._gl);
         this.gl.viewport(0, 0, this.width, this.height);
+        this.batchLoad(Defaults);
+        this.vendor = this._gl.getParameter(0x9245);
+        this.rendererName = this._gl.getParameter(0x9246);
     }
     private requireNextFrame(): void {
         if (!this.frameSheduled) {
@@ -105,7 +123,7 @@ export class GraphicsContext {
         }
         return this.fragmentShaders[name] = new FragmentShader(this.gl, name, source);
     }
-    createProgram(name: string, vs, fs): FragmentShader {
+    createProgram(name: string, vs, fs): Program {
         if (this.programs[name]) {
             throw new Error(`Program named '${name}' already exists.`);
         }
@@ -139,11 +157,11 @@ export class GraphicsContext {
         }
         return this.pipelines[name] = new Pipeline(name, prog, pipeState);
     }
-    createMesh(name: string, vertexBuffers: Object[], pipeline: Object): DrawState {
+    createMesh(name: string, vertexBuffers: Object[], pipeline: Object): Mesh {
         if (this.pipelineStates[name]) {
             throw new Error(`Mesh State named '${name}' already exists.`);
         }
-        return this.meshes[name] = new Mesh(name, vertexBuffers, pipeline);
+        return this.meshes[name] = new Mesh(this.gl, name, vertexBuffers, pipeline);
     }
     createDrawState(name: string, mesh: string, pipeline: string): DrawState {
         if (this.pipelineStates[name]) {
@@ -157,9 +175,9 @@ export class GraphicsContext {
         if (!pipe) {
             throw new Error(`Pipeline named '${pipeline}' does not exist.`);
         }
-        return this.drawStates[name] = new DrawState(name, meshObj, pipe);
+        return this.drawStates[name] = new DrawState(name, pipe, meshObj, []);
     }
-    batchLoad({ passes, vertexShaders, fragmentShaders, programs, textures, meshes, pipelineStates, pipelines, drawStates }: BatchLoadOptions): GraphicsContext {
+    batchLoad({ passes, vertexShaders, fragmentShaders, programs, textures, meshes, pipelineStates, pipelines, drawStates }: BatchLoadOptions, callback?): GraphicsContext {
         if (passes) {
             objForEach(passes, (passOptions, passName) => this.createPass(passName, passOptions));
         }
@@ -266,45 +284,118 @@ export class GraphicsContext {
         } else {
             // FIXME: handle offscreen rendering 
         }
+        this._currentPass = pass;
         return this;
     }
     setViewport(x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number): GraphicsContext {
         return this;
     }
     setConstant(name: string, value: any): GraphicsContext {
+        if (!this.currentDrawState) {
+            throw new Error(`You have to set a draw state (using 'setDrawState' method) before you set a constant.`);
+        }
+        const uniform = this.currentDrawState.pipeline.program.uniforms[name];
+        if (uniform) {
+            uniform.apply(this._gl, uniform.index, value);
+        } else {
+            console.error(`Uniform '${name}' does not exist for current program '${this.currentDrawState.pipeline.program}'.`);
+        }
         return this;
     }
     setDrawState(drawState: DrawState): GraphicsContext {
+        if (!this.currentPass) {
+            throw new Error(`You have to begin a pass (using 'beginPass' method) before you set a constant.`);
+        }
         const {currentDrawState, gl} = this;
         if (drawState === currentDrawState) {
             return this;
         }
-        if (drawState.pipeline !== currentDrawState.pipeline) {
-            if (drawState.pipeline.state !== currentDrawState.pipeline.state) {
-                applyPipelineState(gl, drawState.pipeline.state, currentDrawState.pipeline.state, this.pipelineStateCache);
+        let currPipeline;
+        let currPipelineState;
+        let currProgram;
+        let currMesh;
+        let currInputLayout;
+        let currTextures;
+        if (currentDrawState) {
+            currPipeline = currentDrawState.pipeline;
+            currPipelineState = currPipeline.state;
+            currProgram = currPipeline.program;
+            currMesh = currentDrawState.mesh;
+            currInputLayout = currentDrawState.inputLayout;
+        }
+        if (drawState.pipeline !== currPipeline) {
+            if (drawState.pipeline.state !== currPipelineState) {
+                applyPipelineState(gl, drawState.pipeline.state, currPipelineState, this.pipelineStateCache);
             }
-            if (drawState.pipeline.program !== currentDrawState.pipeline.program) {
+            if (drawState.pipeline.program !== currProgram) {
+                if (!drawState.pipeline.program.isInitialized) {
+                    drawState.pipeline.program.initialize();
+                }
                 gl.useProgram(drawState.pipeline.program.program);
             }
         }
-        if (drawState.mesh !== currentDrawState.mesh) {
-            // apply mesh
-        }
-        if (drawState.inputLayout !== currentDrawState.inputLayout) {
+        if (drawState.inputLayout !== currInputLayout) {
+            const inputLayout = drawState.inputLayout;
+            const { vertexBuffers, indexBuffer } = drawState.mesh;
+            const evaArray = this.enabledVertexAttributeArrays;
             // apply new layout
+            if (!inputLayout.isInitialized) {
+                inputLayout.initialize(drawState.mesh, drawState.pipeline.program);
+            }
+            for (let idx = 0; idx < evaArray.length; idx++) {
+                const index = evaArray[idx];
+                if (index == 0) {
+                    continue;
+                }
+                gl.disableVertexAttribArray(index);
+            }
+            evaArray.length = 0;
+            inputLayout.vertexAttributes.forEach(element => {
+                const { index } = element;
+                const vb = vertexBuffers[element.slot];
+                if (vb == null) {
+                    console.error('Prepare for draw referenced a null vertex buffer object');
+                    return;
+                }
+                gl.enableVertexAttribArray(index);
+                gl.bindBuffer(vb.bindTarget, vb.buffer);
+                gl.vertexAttribPointer(index, element.size, element.type, element.normalize, element.stride, element.offset);
+                evaArray.push(index);
+            });
+            if (indexBuffer) {
+                gl.bindBuffer(indexBuffer.bindTarget, indexBuffer.buffer);
+            } else {
+                gl.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, void 0);
+            }
         }
         const textures = drawState.textures;
-        const currentTextures = currentDrawState.textures;
+        const currentTextures = currentDrawState ? currentDrawState.textures : emptyArray;
         for (let i = 0; textures.length > i; i++) {
             const texture = textures[i];
             const currentTexture = currentTextures[i];
             if (texture !== currentTexture) {
+                /* for (int i = 0; i < numTextures; i++) {
+                        SamplerState sampler = _samplerStateHandles[i];
+                        SpectreTexture texture = _textureHandles[i];
+                        device.gl.activeTexture(WebGL.TEXTURE0 + i);
+                        device.gl.bindTexture(WebGL.TEXTURE_2D, null);
+                        device.gl.bindTexture(WebGL.TEXTURE_CUBE_MAP, null);
+                        if (sampler == null || texture == null) {
+                            continue;
+                        }
+                        texture._bind(WebGL.TEXTURE0 + i);
+                        texture._applySampler(sampler);
+                    }*/
                 // apply texture!
             }
         }
+        this._currentDrawState = drawState;
         return this;
     }
     draw(baseElement: number, numElements: number): GraphicsContext {
+        if (!this.currentDrawState) {
+            throw new Error(`You have to set a draw state (using 'setDrawState' method) before you use draw.`);
+        }
         const { primitiveType, indexFormat, indexSize } = this.currentDrawState.mesh;
         if (indexFormat === IndexFormat.None) {
             this.gl.drawArrays(primitiveType, baseElement, numElements);
@@ -314,6 +405,9 @@ export class GraphicsContext {
         return this;
     }
     drawMultipleInstances(start: number, count: number, instances: number) {
+        if (!this.currentDrawState) {
+            throw new Error(`You have to set a draw state (using 'setDrawState' method) before you use drawMultipleInstances.`);
+        }
         return this;
     }
     endPass(): GraphicsContext {
@@ -327,8 +421,42 @@ export class GraphicsContext {
         return this;
     }
     discard(): void {
-
+        const { gl, passes, vertexShaders, fragmentShaders, programs, pipelineStates, pipelines, meshes, drawStates } = this;
+        for (const member in passes) {
+            delete passes[member];
+        }
+        for (const shaderName in vertexShaders) {
+            gl.deleteShader(vertexShaders[shaderName].shader);
+            delete vertexShaders[shaderName];
+        }
+        for (const shaderName in fragmentShaders) {
+            gl.deleteShader(fragmentShaders[shaderName].shader);
+            delete fragmentShaders[shaderName];
+        }
+        for (const programName in programs) {
+            gl.deleteProgram(programs[programName].program);
+            delete programs[programName];
+        }
+        for (const stateName in pipelineStates) {
+            delete pipelineStates[stateName];
+        }
+        for (const pipelineName in pipelines) {
+            delete pipelines[pipelineName];
+        }
+        for (const meshName in meshes) {
+            const mesh = meshes[meshName];
+            mesh.vertexBuffers.forEach(vb => gl.deleteBuffer(vb.buffer));
+            gl.deleteBuffer(mesh.indexBuffer.buffer);
+            delete meshes[meshName];
+        }
+        for (const drawStateName in drawStates) {
+            delete drawStates[drawStateName];
+        }
     }
+}
+
+export interface DiscardAble {
+    discard(): void;
 }
 
 /**
@@ -369,15 +497,27 @@ export interface PipelineOptions {
     program: string;
     pipelineState: string;
 }
+/**
+ * AttributeOptions
+ * If you only provide the name of the Attribute the offset and stride will be calculated.
+ * Provided the used program uses all provided properties. The properties have to be provided
+ * in the order how they appear in the VertexBuffers through. Otherwise the offsets will be incorrect.
+ */
 export interface AttributeOptions {
+    /** Attribute name inside the shader */
     name: string;
-    offset?: number;
-    stride?: number;
+    /** Size of the attribute, length of the array (currently ignored) */
+    size: number;
+    /** Offset inside the VertexShader */
+    offset: number;
+    /** Stride of the attribute */
+    stride: number;
 }
+
 export interface VertexBufferOptions {
     name?: string;
     data: number[];
-    layout: AttributeOptions[];
+    attributes: AttributeOptions[] | string[];
 }
 export interface IndexBufferOptions {
     name?: string;
@@ -391,8 +531,14 @@ export interface MeshOptions {
 export interface DrawStateOptions {
     mesh: string;
     pipeline: string;
-    textures?: TextureSampler[];
+    textures?: { [code: string]: SamplerOptions; };
 }
+
+export interface SamplerOptions {
+    texture: string;
+    sampler: string;
+}
+
 export interface TextureSampler {
     texture: string;
     sampler: string;
@@ -400,7 +546,6 @@ export interface TextureSampler {
 export interface SamplerOptions {
     type: string;
     src: string;
-    data: number[];
 }
 export interface TextureOptions {
     type: string;
@@ -413,13 +558,14 @@ export interface ShaderOptions {
 }
 
 export interface BatchLoadOptions {
-    passes: { [code: string]: PassOptions; };
-    pipelineStates: { [code: string]: PipelineStateOptions; };
+    passes?: { [code: string]: PassOptions; };
+    pipelineStates?: { [code: string]: PipelineStateOptions; };
     vertexShaders?: { [code: string]: ShaderOptions; };
     fragmentShaders?: { [code: string]: ShaderOptions; };
     programs?: { [code: string]: ProgramOptions; };
-    pipelines: { [code: string]: PipelineOptions; };
-    meshes: { [code: string]: MeshOptions; };
+    pipelines?: { [code: string]: PipelineOptions; };
+    meshes?: { [code: string]: MeshOptions; };
     textures?: { [code: string]: TextureOptions; };
-    drawStates: { [code: string]: DrawStateOptions; };
+    samplerStates?: { [code: string]: SamplerStateOptions; };
+    drawStates?: { [code: string]: DrawStateOptions; };
 }

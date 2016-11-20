@@ -9,7 +9,7 @@ export class PipelineState implements PipelineStateOptions {
     readonly blendDstFactor: BlendFactor;
     readonly blendOp: BlendOp;
     readonly blendColor: [number, number, number, number];
-    readonly colorWriteMask: [boolean, boolean, boolean, boolean];
+    readonly colorWriteMask: [boolean, boolean, boolean, boolean] = [true, true, true, true];
     readonly blendSrcFactorRGB: BlendFactor;
     readonly blendDstFactorRGB: BlendFactor;
     readonly blendOpRGB: BlendOp;
@@ -53,6 +53,12 @@ export class PipelineState implements PipelineStateOptions {
             this.blendColor = [args.blendColor[0] || 1, args.blendColor[1] || 1, args.blendColor[2] || 1, args.blendColor[3] || 1];
         } else {
             this.blendColor = [1, 1, 1, 1];
+        }
+        if (args.colorWriteMask) {
+            this.colorWriteMask[0] = !(args.colorWriteMask[0] === false);
+            this.colorWriteMask[1] = !(args.colorWriteMask[1] === false);
+            this.colorWriteMask[2] = !(args.colorWriteMask[2] === false);
+            this.colorWriteMask[3] = !(args.colorWriteMask[3] === false);
         }
         this.blendSrcFactorRGB = typeof args.blendSrcFactorRGB === 'number' ? args.blendSrcFactorRGB : some(BlendFactor[args.blendSrcFactorRGB], BlendFactor.One);
         this.blendDstFactorRGB = typeof args.blendDstFactorRGB === 'number' ? args.blendDstFactorRGB : some(BlendFactor[args.blendSrcFactorRGB], BlendFactor.Zero);
@@ -101,11 +107,11 @@ export function applyPipelineState(gl: WebGLRenderingContext, state: PipelineSta
     // apply depth-stencil state changes
     if (state.depthCmpFunc !== oldState.depthCmpFunc) {
         cache.depthCmpFunc = state.depthCmpFunc;
-        gl.depthFunc(oldState.depthCmpFunc);
+        gl.depthFunc(state.depthCmpFunc);
     }
     if (state.depthWriteEnabled !== oldState.depthWriteEnabled) {
         cache.depthWriteEnabled = state.depthWriteEnabled;
-        gl.depthMask(oldState.depthWriteEnabled);
+        gl.depthMask(state.depthWriteEnabled);
     }
     if (state.stencilEnabled !== oldState.stencilEnabled) {
         cache.stencilEnabled = state.stencilEnabled;
@@ -233,7 +239,7 @@ export function applyPipelineState(gl: WebGLRenderingContext, state: PipelineSta
     }
     if (state.cullFace !== oldState.cullFace) {
         cache.cullFace = state.cullFace;
-        gl.cullFace(oldState.cullFace);
+        gl.cullFace(state.cullFace);
     }
     if (state.scissorTestEnabled !== oldState.scissorTestEnabled) {
         cache.scissorTestEnabled = state.scissorTestEnabled;

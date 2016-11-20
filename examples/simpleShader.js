@@ -21,12 +21,3 @@ const shdParserGenerator = require('../lib/shdParserGenerator');
 const shaderLib = shdParserGenerator([shd]);
 console.log(shaderLib.programs.Triangle);
 console.log(shaderLib.vertexShaders.vs.inputs);
-//console.log(shaderLib.vertexShaders[shaderLib.programs.Triangle.vs]);
-//console.log(shaderLib.fragmentShaders[shaderLib.programs.Triangle.fs]);
-/*
-console.log('Program: ', shaderLib.programs.Shader.name);
-console.log('VS');
-console.log(shaderLib.vertexShaders[shaderLib.programs.Shader.vs].optimizedSource['glsl120']);
-console.log('FS');
-console.log(shaderLib.fragmentShaders[shaderLib.programs.Shader.fs].optimizedSource['glsl120']);
-*/
