@@ -1,0 +1,66 @@
+@import ./triangle.shd
+
+@samplerState anisotropicClamp addressU addressV minFilter magFilter maxAnisotropy
+
+@texture_block textures Textures
+sampler2D tex Texture anisotropicClamp RGBA8
+@end
+
+
+
+@state Opaque
+@blend false
+@blendSrcFactorRGB One
+@blendDstFactorRGB Zero
+@blendOpRGB Add
+@blendColor 1.0 1.0 1.0 1.0
+@blendSrcFactorRGB One
+@blendDstFactorRGB Zero
+@blendOpRGB Add
+@blendSrcFactorAlpha One
+@blendDstFactorAlpha Zero
+
+@stencil false
+@stencilFailOp keep
+@stencilDepthFailOp keep
+@stencilPassOp keep
+@stencilCmpFunc always
+@stencilReadMask 0xFF
+@stencilWriteMask 0xFF
+@stencilRef 0
+
+@frontStencilFailOp keep
+@frontStencilDepthFailOp keep
+@frontStencilPassOp keep
+@frontStencilCmpFunc always
+@frontStencilReadMask 0xFF
+@frontStencilWriteMask 0xFF
+@frontStencilRef 0
+
+@backStencilFailOp: keep
+@backStencilDepthFailOp keep
+@backStencilPassOp keep
+@backStencilCmpFunc always
+@backStencilReadMask 0xFF
+@backStencilWriteMask 0xFF
+@backStencilRef 0
+
+@depthCmpFunc always
+@depthWriteEnabled false
+@cullFaceEnabled false
+@cullFace face
+@scissorTestEnabled false
+@end
+
+
+@pass Oparque Triangle
+@option RenderType Opaque
+@option Lighting Off
+@option Queue Geometry 1
+@grabPass Bar grabedTexture
+@useState Foo
+@useProgam Triangle
+@colorAttachments
+@depthAttachment
+@storeAction
+@end
