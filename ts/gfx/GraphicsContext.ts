@@ -123,7 +123,7 @@ export class GraphicsContext {
         }
         return this.fragmentShaders[name] = new FragmentShader(this.gl, name, source);
     }
-    createProgram(name: string, vs, fs): Program {
+    createProgram(name: string, vs, fs, samplerStates?): Program {
         if (this.programs[name]) {
             throw new Error(`Program named '${name}' already exists.`);
         }
@@ -135,7 +135,7 @@ export class GraphicsContext {
         if (!fragmentShader) {
             throw new Error(`VertexShader named '${fs}' does not exist.`);
         }
-        return this.programs[name] = new Program(this.gl, name, vertexShader, fragmentShader);
+        return this.programs[name] = new Program(this.gl, name, vertexShader, fragmentShader, samplerStates);
     }
     createPipelineState(name: string, options: PipelineStateOptions): PipelineState {
         if (this.pipelineStates[name]) {
