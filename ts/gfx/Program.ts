@@ -1,3 +1,4 @@
+import { SamplerState } from './SamplerState';
 const GL = WebGLRenderingContext;
 
 class ProgramSampler {
@@ -46,13 +47,18 @@ export class Program {
     readonly attributes: { [code: string]: Attribute; } = {};
     readonly samplers: { [code: string]: ProgramSampler; } = {};
     readonly uniforms: { [code: string]: ProgramUniform; } = {};
-    constructor(gl: WebGLRenderingContext, name: string, vs: VertexShader, fs: FragmentShader) {
+    readonly samplerStates: { [code: string]: SamplerState; } = {};
+    constructor(gl: WebGLRenderingContext, name: string, vs: VertexShader, fs: FragmentShader, samplerStates) {
         const prog = this.program = gl.createProgram();
         this.gl = gl;
         gl.attachShader(prog, vs.shader);
         gl.attachShader(prog, fs.shader);
         gl.linkProgram(prog);
-        // this.initialize();
+        if (samplerStates) {
+            for (const key in samplerStates) {
+                this.samplerStates[key] = new SamplerState(samplerStates[key]);
+            }
+        }
     }
     initialize(): void {
         const { gl, program, _isInitialized } = this;
