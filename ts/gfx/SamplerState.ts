@@ -1,4 +1,17 @@
 const GL = WebGLRenderingContext;
+
+const capitalizeFirstLetter: (str: any) => string = str => str[0].toUpperCase() + str.substring(1);
+const isNumber = str => typeof str === 'number';
+
+interface SamplerStateArguments {
+    name: string;
+    addressU: TextureAddressMode | string;
+    addressV: TextureAddressMode | string;
+    minFilter: TextureMinFilter | string;
+    magFilter: TextureMagFilter | string;
+    maxAnisotropy: number;
+}
+
 export class SamplerState {
     readonly name: string;
     readonly addressU: TextureAddressMode;
@@ -11,12 +24,13 @@ export class SamplerState {
         addressV = TextureAddressMode.Wrap,
         minFilter = TextureMinFilter.Linear,
         magFilter = TextureMagFilter.Linear,
-        maxAnisotropy = 1 }) {
+        maxAnisotropy = 1 }: SamplerStateArguments) {
+            capitalizeFirstLetter(addressU)
             this.name = name;
-            this.addressU = addressU;
-            this.addressV = addressV;
-            this.minFilter = minFilter;
-            this.magFilter = magFilter;
+            this.addressU = (isNumber(addressU) ? addressU : TextureAddressMode[capitalizeFirstLetter(addressU)]) as TextureAddressMode;
+            this.addressU = (isNumber(addressV) ? addressV : TextureAddressMode[capitalizeFirstLetter(addressV)]) as TextureAddressMode;
+            this.minFilter = (isNumber(addressV) ? addressV : TextureMinFilter[capitalizeFirstLetter(addressV)]) as TextureMinFilter;
+            this.magFilter = (isNumber(addressV) ? addressV : TextureMagFilter[capitalizeFirstLetter(addressV)]) as TextureMagFilter;
             this.maxAnisotropy = maxAnisotropy;
     }
 }
