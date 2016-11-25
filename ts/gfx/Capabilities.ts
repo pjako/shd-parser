@@ -20,16 +20,16 @@ export class Capabilities {
     readonly depthBuffer: boolean;
     readonly stencilBuffer: boolean;
 
-    readonly textureUnits: boolean;
-    readonly vertexShaderTextureUnits: boolean;
-    readonly maxTextureSize: boolean;
-    readonly maxCubeMapTextureSize: boolean;
-    readonly maxVertexAttribs: boolean;
-    readonly maxVaryingVectors: boolean;
-    readonly maxVertexShaderUniforms: boolean;
-    readonly maxFragmentShaderUniforms: boolean;
-    readonly depthBufferSize: boolean;
-    readonly stencilBufferSize: boolean;
+    readonly textureUnits: number;
+    readonly vertexShaderTextureUnits: number;
+    readonly maxTextureSize: number;
+    readonly maxCubeMapTextureSize: number;
+    readonly maxVertexAttribs: number;
+    readonly maxVaryingVectors: number;
+    readonly maxVertexShaderUniforms: number;
+    readonly maxFragmentShaderUniforms: number;
+    readonly depthBufferSize: number;
+    readonly stencilBufferSize: number;
 
     constructor(gl: WebGLRenderingContext) {
         this.multipleRenderTargets = hasExtension(gl, 'EXT_draw_buffers');

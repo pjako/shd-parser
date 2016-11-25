@@ -516,12 +516,12 @@ export interface AttributeOptions {
 
 export interface VertexBufferOptions {
     name?: string;
-    data: number[];
+    data: number[] | Float32Array;
     attributes: AttributeOptions[] | string[];
 }
 export interface IndexBufferOptions {
     name?: string;
-    data: number[];
+    data: number[] | Uint16Array | Uint32Array;
 }
 export interface MeshOptions {
     primitiveType: PrimitiveType;
