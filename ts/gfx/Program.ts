@@ -3,12 +3,12 @@ const GL = WebGLRenderingContext;
 
 class ProgramSampler {
     readonly name: string;
-    readonly index: number;
+    readonly index: WebGLUniformLocation;
     readonly type: number;
     readonly size: number;
     readonly location: any;
     readonly textureUnit: number;
-    constructor(name: string, index: number, type: number, size: number, location, textureUnit: number) {
+    constructor(name: string, index: WebGLUniformLocation, type: number, size: number, location, textureUnit: number) {
         this.name = name;
         this.index = index;
         this.type = type;
@@ -20,12 +20,12 @@ class ProgramSampler {
 
 class ProgramUniform {
     readonly name: string;
-    readonly index: number;
+    readonly index: WebGLUniformLocation;
     readonly type: number;
     readonly size: number;
     readonly location: any;
-    readonly apply: (gl: WebGLRenderingContext, index: number, argument: any) => void;
-    constructor(name: string, index: number, type: number, size: number, location) {
+    readonly apply: (gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any) => void;
+    constructor(name: string, index: WebGLUniformLocation, type: number, size: number, location) {
         this.name = name;
         this.index = index;
         this.type = type;
@@ -45,7 +45,7 @@ export class Program {
         return this._isInitialized;
     }
     readonly attributes: { [code: string]: Attribute; } = {};
-    readonly samplers: { [code: string]: ProgramSampler; } = {};
+    readonly samplers: ProgramSampler[] = [];
     readonly uniforms: { [code: string]: ProgramUniform; } = {};
     readonly samplerStates: { [code: string]: SamplerState; } = {};
     constructor(gl: WebGLRenderingContext, name: string, vs: VertexShader, fs: FragmentShader, samplerStates) {
@@ -95,7 +95,7 @@ export class Program {
                 const activeUniform = gl.getActiveUniform(this.program, i);
                 const location = gl.getUniformLocation(this.program, activeUniform.name);
                 if (isSamplerType(activeUniform.type)) {
-                    this.samplers[activeUniform.name.replace('[]', '')] = new ProgramSampler(activeUniform.name, i, activeUniform.type, activeUniform.size, location, numSamplers);
+                    this.samplers.push(new ProgramSampler(activeUniform.name, i, activeUniform.type, activeUniform.size, location, numSamplers));
                     gl.uniform1i(location, numSamplers++);
                 } else {
                     this.uniforms[activeUniform.name.replace('[]', '')] = new ProgramUniform(activeUniform.name, i, activeUniform.type, activeUniform.size, location);
@@ -142,7 +142,7 @@ export class FragmentShader extends Shader {
 
 const isSamplerType: (type: number) => boolean = type => type === GL.SAMPLER_2D || type == GL.SAMPLER_CUBE;
 
-function setUniform1f(gl, index: number, argument: any): void {
+function setUniform1f(gl, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniform1fv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -153,7 +153,7 @@ function setUniform1f(gl, index: number, argument: any): void {
     throw new Error('Argument has invalid type');
 }
 
-function setUniform2f(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform2f(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniform2fv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -162,7 +162,7 @@ function setUniform2f(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform3f(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform3f(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniform3fv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -171,7 +171,7 @@ function setUniform3f(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform4f(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform4f(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniform4fv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -180,7 +180,7 @@ function setUniform4f(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform1i(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform1i(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Int32Array) {
         return gl.uniform1iv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -191,7 +191,7 @@ function setUniform1i(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform2i(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform2i(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Int32Array) {
         return gl.uniform2iv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -200,7 +200,7 @@ function setUniform2i(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform3i(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform3i(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Int32Array) {
         return gl.uniform3iv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -209,7 +209,7 @@ function setUniform3i(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniform4i(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniform4i(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Int32Array) {
         return gl.uniform4iv(index, argument);
     } else if (Array.isArray(argument)) {
@@ -218,28 +218,28 @@ function setUniform4i(gl: WebGLRenderingContext, index: number, argument: any): 
     throw new Error('Argument has invalid type');
 }
 
-function setUniformMatrix2(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniformMatrix2(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniformMatrix2fv(index, false, argument);
     }
     throw new Error('Argument has invalid type');
 }
 
-function setUniformMatrix3(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniformMatrix3(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniformMatrix3fv(index, false, argument);
     }
     throw new Error('Argument has invalid type');
 }
 
-function setUniformMatrix4(gl: WebGLRenderingContext, index: number, argument: any): void {
+function setUniformMatrix4(gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any): void {
     if (argument instanceof Float32Array) {
         return gl.uniformMatrix4fv(index, false, argument);
     }
     throw new Error('Argument has invalid type');
 }
 
-function findUniformSetForType(type: number): (gl: WebGLRenderingContext, index: number, argument: any) => void {
+function findUniformSetForType(type: number): (gl: WebGLRenderingContext, index: WebGLUniformLocation, argument: any) => void {
     switch (type) {
         case GL.FLOAT:
             return setUniform1f;

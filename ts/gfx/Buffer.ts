@@ -78,8 +78,9 @@ export class IndexBuffer extends Buffer {
         super(gl, name, gl.ELEMENT_ARRAY_BUFFER, gl.ELEMENT_ARRAY_BUFFER_BINDING);
         if (bufferData) {
             let { data, usage, size, indexFormat } = bufferData;
-            this.indexFormat = indexFormat;
+            this.indexFormat = indexFormat === IndexFormat.UInt ? IndexFormat.UInt : IndexFormat.UShort;
             const ArrayTypeConstructor = indexFormat === IndexFormat.UInt ? Uint32Array : Uint16Array;
+            
             if (typeof usage !== 'number') {
                 usage = usage === undefined ? Usage.Immutable : Usage[usage];
             }

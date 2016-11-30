@@ -5,8 +5,14 @@ import { Pipeline } from './Pipeline';
 import { PipelineState, applyPipelineState, PipelineStateOptions } from './PipelineState';
 import { Buffer, Usage, IndexFormat } from './Buffer';
 import { Mesh, PrimitiveType } from './Mesh';
+import { TextureType } from './TextureType';
+import { PixelFormat } from './PixelFormat';
+import { PixelType } from './PixelType';
+import { Texture } from './Texture';
+import { Texture2D } from './Texture2D';
 import { SamplerState, SamplerStateOptions } from './SamplerState';
 import { Capabilities } from './Capabilities';
+import { TaskManager } from './TaskManager';
 import Defaults from './Defaults';
 
 const GL = WebGLRenderingContext;
@@ -27,6 +33,7 @@ export class GraphicsContext {
     readonly programs: { [code: string]: Program; } = {};
     readonly buffers: { [code: string]: Buffer; } = {};
     readonly meshes: { [code: string]: Mesh; } = {};
+    readonly textures: { [code: string]: Texture; } = {};
     readonly pipelines: { [code: string]: Pipeline; } = {};
     readonly pipelineStates: { [code: string]: PipelineState; } = {};
     readonly canvas: HTMLCanvasElement;
@@ -105,25 +112,31 @@ export class GraphicsContext {
     load(): GraphicsContext {
         return this;
     }
-    createPass(name: string, passOptions: PassOptions): Pass {
+    pauseTask(taskId: number) {
+
+    }
+    taskDone(taskId: number) {
+        return true;
+    }
+    async createPass(name: string, passOptions: PassOptions): Pass {
         if (this.passes[name]) {
             throw new Error(`Pass named '${name}' already exists.`);
         }
         return this.passes[name] = new Pass(passOptions);
     }
-    createVertexShader(name: string, source): VertexShader {
+    async createVertexShader(name: string, source): VertexShader {
         if (this.vertexShaders[name]) {
             throw new Error(`VertexShader named '${name}' already exists.`);
         }
         return this.vertexShaders[name] = new VertexShader(this.gl, name, source);
     }
-    createFragmentShader(name: string, source): FragmentShader {
+    async createFragmentShader(name: string, source): FragmentShader {
         if (this.fragmentShaders[name]) {
             throw new Error(`FragmentShader named '${name}' already exists.`);
         }
         return this.fragmentShaders[name] = new FragmentShader(this.gl, name, source);
     }
-    createProgram(name: string, vs, fs, samplerStates?): Program {
+    async createProgram(name: string, vs, fs, samplerStates?): Program {
         if (this.programs[name]) {
             throw new Error(`Program named '${name}' already exists.`);
         }
@@ -137,13 +150,13 @@ export class GraphicsContext {
         }
         return this.programs[name] = new Program(this.gl, name, vertexShader, fragmentShader, samplerStates);
     }
-    createPipelineState(name: string, options: PipelineStateOptions): PipelineState {
+    async createPipelineState(name: string, options: PipelineStateOptions): PipelineState {
         if (this.pipelineStates[name]) {
             throw new Error(`Pipeline State named '${name}' already exists.`);
         }
         return this.pipelineStates[name] = new PipelineState(name, options);
     }
-    createPipeline(name: string, program: string, pipelineState: string): Pipeline {
+    async createPipeline(name: string, program: string, pipelineState: string): Pipeline {
         if (this.pipelineStates[name]) {
             throw new Error(`Pipeline State named '${name}' already exists.`);
         }
@@ -157,13 +170,19 @@ export class GraphicsContext {
         }
         return this.pipelines[name] = new Pipeline(name, prog, pipeState);
     }
-    createMesh(name: string, vertexBuffers: Object[], pipeline: Object): Mesh {
-        if (this.pipelineStates[name]) {
+    async createMesh(name: string, vertexBuffers: Object[], pipeline: Object): Mesh {
+        if (this.meshes[name]) {
             throw new Error(`Mesh State named '${name}' already exists.`);
         }
         return this.meshes[name] = new Mesh(this.gl, name, vertexBuffers, pipeline);
     }
-    createDrawState(name: string, mesh: string, pipeline: string): DrawState {
+    async createTexture2D(name: string): Texture2D {
+        if (this.textures[name]) {
+            throw new Error(`Mesh State named '${name}' already exists.`);
+        }
+        return this.textures[name] = new Texture2D(name, this);
+    }
+    async createDrawState(name: string, mesh: string, pipeline: string, textures: { [code: string]: Texture; }): DrawState {
         if (this.pipelineStates[name]) {
             throw new Error(`DrawState State named '${name}' already exists.`);
         }
@@ -175,9 +194,10 @@ export class GraphicsContext {
         if (!pipe) {
             throw new Error(`Pipeline named '${pipeline}' does not exist.`);
         }
-        return this.drawStates[name] = new DrawState(name, pipe, meshObj, []);
+        return this.drawStates[name] = new DrawState(name, pipe, meshObj, {});
     }
-    batchLoad({ passes, vertexShaders, fragmentShaders, programs, textures, meshes, pipelineStates, pipelines, drawStates }: BatchLoadOptions, callback?): GraphicsContext {
+    async batchLoad({ passes, vertexShaders, fragmentShaders, programs, textures, meshes, pipelineStates, pipelines, drawStates }: BatchLoadOptions, callback?): number {
+        const tasks = [];
         if (passes) {
             objForEach(passes, (passOptions, passName) => this.createPass(passName, passOptions));
         }
@@ -188,7 +208,7 @@ export class GraphicsContext {
             objForEach(fragmentShaders, (s, shaderName) => this.createFragmentShader(shaderName, s.source));
         }
         if (programs) {
-            objForEach(programs, (shaderNames, programName) => this.createProgram(programName, shaderNames.vs, shaderNames.fs));
+            objForEach(programs, (program, programName) => this.createProgram(programName, program.vs, program.fs, program.samplerStates));
         }
         if (pipelineStates) {
             objForEach(pipelineStates, (state, name) => this.createPipelineState(name, state));
@@ -199,10 +219,20 @@ export class GraphicsContext {
         if (meshes) {
             objForEach(meshes, (mesh, name) => this.createMesh(name, mesh.vertexBuffers, mesh.indexBuffer));
         }
-        if (drawStates) {
-            objForEach(drawStates, (drawState, name) => this.createDrawState(name, drawState.pipeline, drawState.mesh));
+        if (textures) {
+            objForEach(textures, (textureInfo: TextureOptions, name: string) => {
+                if (textureInfo.type === void 0 || textureInfo.type === TextureType.Texture2D) {
+                    const texture = this.createTexture2D(name);
+                    if (textureInfo.src) {
+                        tasks.push(texture.uploadFromUrl(textureInfo.src));
+                    }
+                }
+            });
         }
-        return this;
+        if (drawStates) {
+            objForEach(drawStates, (drawState, name) => this.createDrawState(name, this, drawState.mesh, drawState.pipeline, drawState.textures));
+        }
+        return this.taskManager.waitForTasksDone(tasks);
     }
     onContexLoss(callback: (newContext: GraphicsContext) => void): GraphicsContext {
         return this;
@@ -296,7 +326,7 @@ export class GraphicsContext {
         }
         const uniform = this.currentDrawState.pipeline.program.uniforms[name];
         if (uniform) {
-            uniform.apply(this._gl, uniform.index, value);
+            uniform.apply(this._gl, uniform.location, value);
         } else {
             console.error(`Uniform '${name}' does not exist for current program '${this.currentDrawState.pipeline.program}'.`);
         }
@@ -400,7 +430,7 @@ export class GraphicsContext {
         if (indexFormat === IndexFormat.None) {
             this.gl.drawArrays(primitiveType, baseElement, numElements);
         } else {
-            this.gl.drawElements(primitiveType, numElements, indexFormat, baseElement * indexSize);
+            this.gl.drawElements(primitiveType, numElements, indexFormat, baseElement);
         }
         return this;
     }
@@ -531,7 +561,7 @@ export interface MeshOptions {
 export interface DrawStateOptions {
     mesh: string;
     pipeline: string;
-    textures?: { [code: string]: SamplerOptions; };
+    textures?: { [code: string]: SamplerOptions | string; };
 }
 
 export interface SamplerOptions {
@@ -548,9 +578,9 @@ export interface SamplerOptions {
     src: string;
 }
 export interface TextureOptions {
-    type: string;
-    src: string;
-    data: number[];
+    type?: TextureType;
+    src?: string;
+    data?: number[];
 }
 
 export interface ShaderOptions {

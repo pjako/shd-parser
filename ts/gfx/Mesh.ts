@@ -38,19 +38,19 @@ export class Mesh {
         }
     }
 }
-
+const GL = WebGLRenderingContext;
 /**
  * 3D primitive types.
  */
 export enum PrimitiveType {
     /** point list */
-    Points = WebGLRenderingContext.POINTS,
+    Points = GL.POINTS,
     /** line list */
-    Lines = WebGLRenderingContext.LINES,
+    Lines = GL.LINES,
     /** line strip */
-    LineStrip = WebGLRenderingContext.LINE_STRIP,
+    LineStrip = GL.LINE_STRIP,
     /** triangle list */
-    Triangles = WebGLRenderingContext.TRIANGLES,
+    Triangles = GL.TRIANGLES,
     /** triangle strip */
-    TriangleStrip = WebGLRenderingContext.TRIANGLE_STRIP,
+    TriangleStrip = GL.TRIANGLE_STRIP,
 }
